@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Signing in – reel-bots</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 560px; margin: 80px auto; padding: 0 20px;
+         line-height: 1.6; color: #1b1f24; text-align: center; }
+  .box { border: 1px solid #e3e6ea; border-radius: 12px; padding: 28px; }
+  .err { color: #b42318; }
+  a { color: #0b6bcb; }
+</style>
+</head>
+<body>
+<div class="box">
+  <h1 id="title">Signing in with TikTok…</h1>
+  <p id="msg">Please wait a moment.</p>
+  <p><a href="index.html">Back to the start page</a></p>
+</div>
+<script>
+  // TikTok sends the user back here after login (?code=...&state=... or ?error=...).
+  // The code is stored only for this browser tab and handed to the posting page.
+  var p = new URLSearchParams(window.location.search);
+  var title = document.getElementById("title"), msg = document.getElementById("msg");
+  if (p.get("error")) {
+    title.textContent = "Sign-in cancelled";
+    msg.className = "err";
+    msg.textContent = "TikTok reported: " + (p.get("error_description") || p.get("error"));
+  } else if (p.get("code")) {
+    try { sessionStorage.setItem("tt_code", p.get("code")); sessionStorage.setItem("tt_state", p.get("state") || ""); } catch (e) {}
+    title.textContent = "Signed in";
+    msg.textContent = "You are connected to TikTok. Continuing to the posting page…";
+    setTimeout(function () { window.location.href = "post.html"; }, 1200);
+  } else {
+    title.textContent = "Nothing to do here";
+    msg.textContent = "This page is only used when you sign in with TikTok.";
+  }
+</script>
+</body>
+</html>
