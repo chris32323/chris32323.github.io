@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Post to TikTok – reel-bots</title>
+<style>
+  :root { --ink:#1b1f24; --muted:#5d6672; --line:#e3e6ea; --accent:#fe2c55; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 980px; margin: 32px auto; padding: 0 20px;
+         color: var(--ink); line-height: 1.5; }
+  h1 { font-size: 1.6em; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .card { border: 1px solid var(--line); border-radius: 14px; padding: 22px; margin-bottom: 18px; }
+  .row { display: flex; gap: 28px; flex-wrap: wrap; }
+  .col { flex: 1 1 320px; }
+  video { width: 100%; max-width: 320px; border-radius: 12px; background: #000; aspect-ratio: 9/16; }
+  label { display: block; font-weight: 600; margin: 16px 0 6px; }
+  textarea, select { width: 100%; font: inherit; padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
+  textarea { min-height: 120px; resize: vertical; }
+  .check { display: flex; align-items: center; gap: 10px; margin: 8px 0; font-weight: 400; }
+  .check input { width: 18px; height: 18px; }
+  .hint { color: var(--muted); font-size: .92em; margin: 6px 0 0; }
+  .creator { display: flex; align-items: center; gap: 12px; }
+  .creator img { width: 48px; height: 48px; border-radius: 50%; background: #eee; }
+  button { font: inherit; font-weight: 700; border: 0; border-radius: 10px; padding: 12px 22px; cursor: pointer;
+           background: var(--accent); color: #fff; }
+  button:disabled { background: #c9ced6; cursor: not-allowed; }
+  .ghost { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+  .status { margin-top: 14px; padding: 12px; border-radius: 10px; background: #f4f6f8; display: none; }
+  .err { color: #b42318; }
+  .sub-options { margin-left: 28px; display: none; }
+  a { color: #0b6bcb; }
+</style>
+</head>
+<body>
+<h1>Post to TikTok</h1>
+<p class="sub">Today's geography quiz video – review it and decide how it is posted.</p>
+
+<!-- step 1: sign in -->
+<div class="card" id="login" style="display:none">
+  <p>Connect the TikTok account that should receive the video.</p>
+  <button id="loginBtn">Continue with TikTok</button>
+</div>
+
+<!-- step 2: review and post -->
+<div class="card" id="editor" style="display:none">
+  <div class="creator" id="creator"><img id="avatar" alt=""><div><b id="nick">…</b><br>
+    <span class="hint">The video will be posted to this TikTok account.</span></div></div>
+  <div class="row" style="margin-top:18px">
+    <div class="col">
+      <video id="preview" src="demo.mp4" controls playsinline></video>
+      <p class="hint" id="durationHint"></p>
+    </div>
+    <div class="col">
+      <label for="caption">Caption</label>
+      <textarea id="caption" maxlength="2200">Where on Earth is this? 🛰️ 2 rounds – guess before the timer runs out! Comment your score 👇 #geography #satellite #quiz</textarea>
+
+      <label for="privacy">Who can view this video</label>
+      <select id="privacy"><option value="" selected disabled>Select who can view this video</option></select>
+      <p class="hint">You must choose this yourself – there is no default.</p>
+
+      <label>Allow users to</label>
+      <div class="check"><input type="checkbox" id="allowComment"><span>Comment</span></div>
+      <div class="check"><input type="checkbox" id="allowDuet"><span>Duet</span></div>
+      <div class="check"><input type="checkbox" id="allowStitch"><span>Stitch</span></div>
+
+      <label>Disclose video content</label>
+      <div class="check"><input type="checkbox" id="commercial"><span>This video promotes a brand, product or service</span></div>
+      <div class="sub-options" id="commercialOptions">
+        <div class="check"><input type="checkbox" id="yourBrand"><span>Your brand – you are promoting yourself or your own business</span></div>
+        <div class="check"><input type="checkbox" id="brandedContent"><span>Branded content – you are promoting another brand or a third party</span></div>
+        <p class="hint" id="commercialHint"></p>
+      </div>
+
+      <p class="hint" id="consentText" style="margin-top:18px"></p>
+      <div style="margin-top:14px; display:flex; gap:10px; flex-wrap:wrap">
+        <button id="postBtn" disabled>Post to TikTok</button>
+        <button id="logoutBtn" class="ghost">Use another account</button>
+      </div>
+      <div class="status" id="status"></div>
+    </div>
+  </div>
+</div>
+
+<p class="hint"><a href="index.html">Home</a> · <a href="privacy.html">Privacy Policy</a> · <a href="terms.html">Terms of Service</a></p>
+
+<script>
+// ===== the only two lines you have to change =====
+const CLIENT_KEY = "YOUR_CLIENT_KEY";                              // TikTok app -> Client key (not the secret!)
+const WORKER_URL = "https://reel-bots.YOURNAME.workers.dev";       // your Cloudflare Worker address
+// ================================================
+const REDIRECT_URI = location.origin + "/callback.html";
+const VIDEO_URL = location.origin + "/demo.mp4";
+const $ = (id) => document.getElementById(id);
+let creator = null;
+
+const LABELS = { PUBLIC_TO_EVERYONE: "Everyone", MUTUAL_FOLLOW_FRIENDS: "Friends", FOLLOWER_OF_CREATOR: "Followers",
+                 SELF_ONLY: "Only me" };
+
+async function api(path, body) {
+  const r = await fetch(WORKER_URL + path, { method: "POST", headers: { "Content-Type": "application/json" },
+                                             body: JSON.stringify(body || {}) });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok || (data.error && data.error.code && data.error.code !== "ok")) {
+    const e = data.error && (data.error.message || data.error.code) || data.error || ("HTTP " + r.status);
+    throw new Error(typeof e === "string" ? e : JSON.stringify(e));
+  }
+  return data;
+}
+function token() { try { return sessionStorage.getItem("tt_token") || ""; } catch (e) { return ""; } }
+function showStatus(text, isError) { const s = $("status"); s.style.display = "block"; s.className = "status" + (isError ? " err" : ""); s.textContent = text; }
+
+function login() {
+  const state = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  try { sessionStorage.setItem("tt_expected_state", state); } catch (e) {}
+  const p = new URLSearchParams({ client_key: CLIENT_KEY, scope: "user.info.basic,video.publish", response_type: "code",
+                                  redirect_uri: REDIRECT_URI, state: state });
+  location.href = "https://www.tiktok.com/v2/auth/authorize/?" + p.toString();
+}
+
+function updateConsent() {
+  const branded = $("commercial").checked && $("brandedContent").checked;
+  const music = '<a href="https://www.tiktok.com/legal/page/global/music-usage-confirmation/en" target="_blank">Music Usage Confirmation</a>';
+  const bc = '<a href="https://www.tiktok.com/legal/page/global/bc-policy/en" target="_blank">Branded Content Policy</a>';
+  $("consentText").innerHTML = "By posting, you agree to TikTok's " + (branded ? bc + " and " : "") + music + ".";
+  const yourBrand = $("commercial").checked && $("yourBrand").checked;
+  $("commercialHint").textContent = !$("commercial").checked ? "" :
+    branded ? "Your video will be labeled as \"Paid partnership\"." :
+    yourBrand ? "Your video will be labeled as \"Promotional content\"." : "Choose at least one option.";
+  // branded content cannot be private
+  const priv = $("privacy");
+  [...priv.options].forEach(o => { if (o.value === "SELF_ONLY") { o.disabled = branded;
+      o.textContent = branded ? "Only me (not available for branded content)" : LABELS.SELF_ONLY; } });
+  if (branded && priv.value === "SELF_ONLY") priv.value = "";
+  validate();
+}
+
+function validate() {
+  let ok = !!$("privacy").value;
+  if ($("commercial").checked && !$("yourBrand").checked && !$("brandedContent").checked) ok = false;
+  const v = $("preview"), max = creator && creator.max_video_post_duration_sec;
+  if (max && v.duration && v.duration > max) ok = false;
+  $("postBtn").disabled = !ok;
+}
+
+async function startEditor() {
+  $("login").style.display = "none"; $("editor").style.display = "block";
+  try {
+    const u = await api("/user", { access_token: token() });
+    const user = (u.data && u.data.user) || {};
+    $("nick").textContent = user.display_name || "TikTok user";
+    if (user.avatar_url) $("avatar").src = user.avatar_url;
+    const c = await api("/creator", { access_token: token() });
+    creator = c.data || {};
+    if (creator.creator_nickname) $("nick").textContent = creator.creator_nickname;
+    if (creator.creator_avatar_url) $("avatar").src = creator.creator_avatar_url;
+    const priv = $("privacy");
+    (creator.privacy_level_options || []).forEach(v => { const o = document.createElement("option"); o.value = v;
+      o.textContent = LABELS[v] || v; priv.appendChild(o); });
+    [["allowComment", "comment_disabled"], ["allowDuet", "duet_disabled"], ["allowStitch", "stitch_disabled"]].forEach(([id, k]) => {
+      if (creator[k]) { $(id).disabled = true; $(id).parentElement.title = "Turned off in this account's TikTok settings"; } });
+    if (creator.max_video_post_duration_sec) {
+      const check = () => { const v = $("preview");
+        $("durationHint").textContent = v.duration ? `Length ${Math.round(v.duration)} s (max. ${creator.max_video_post_duration_sec} s for this account)` : "";
+        if (v.duration > creator.max_video_post_duration_sec) $("durationHint").className = "hint err";
+        validate(); };
+      $("preview").addEventListener("loadedmetadata", check); check();
+    }
+  } catch (e) {
+    showStatus("Could not load your TikTok account: " + e.message + " – please sign in again.", true);
+    try { sessionStorage.removeItem("tt_token"); } catch (x) {}
+  }
+  updateConsent();
+}
+
+async function post() {
+  $("postBtn").disabled = true;
+  showStatus("Uploading the video to TikTok… this can take a minute.");
+  try {
+    const r = await api("/publish", {
+      access_token: token(), video_url: VIDEO_URL, title: $("caption").value, privacy_level: $("privacy").value,
+      disable_comment: !$("allowComment").checked, disable_duet: !$("allowDuet").checked, disable_stitch: !$("allowStitch").checked,
+      brand_content_toggle: $("commercial").checked && $("brandedContent").checked,
+      brand_organic_toggle: $("commercial").checked && $("yourBrand").checked });
+    showStatus("Sent to TikTok. Checking the status…");
+    for (let i = 0; i < 40; i++) {
+      await new Promise(res => setTimeout(res, 5000));
+      const s = await api("/status", { access_token: token(), publish_id: r.publish_id });
+      const st = s.data && s.data.status;
+      if (st === "PUBLISH_COMPLETE") { showStatus("Done! The video was posted to your TikTok account. It may take a few minutes until it is visible on your profile."); return; }
+      if (st === "FAILED") { showStatus("TikTok could not post the video: " + (s.data.fail_reason || "unknown reason"), true); $("postBtn").disabled = false; return; }
+      showStatus("TikTok is processing the video… (" + (st || "waiting") + ")");
+    }
+    showStatus("Still processing. Please check your TikTok profile in a few minutes.");
+  } catch (e) { showStatus("Posting failed: " + e.message, true); validate(); }
+}
+
+// wire up
+$("loginBtn").onclick = login;
+$("logoutBtn").onclick = () => { try { sessionStorage.removeItem("tt_token"); } catch (e) {} login(); };
+$("postBtn").onclick = post;
+$("privacy").onchange = validate;
+$("commercial").onchange = () => { $("commercialOptions").style.display = $("commercial").checked ? "block" : "none";
+  if (!$("commercial").checked) { $("yourBrand").checked = false; $("brandedContent").checked = false; } updateConsent(); };
+$("yourBrand").onchange = updateConsent; $("brandedContent").onchange = updateConsent;
+
+(async function init() {
+  let code = "", state = "", expected = "";
+  try { code = sessionStorage.getItem("tt_code") || ""; state = sessionStorage.getItem("tt_state") || "";
+        expected = sessionStorage.getItem("tt_expected_state") || ""; } catch (e) {}
+  if (code) {
+    try { sessionStorage.removeItem("tt_code"); } catch (e) {}
+    if (expected && state !== expected) { $("login").style.display = "block"; showStatus("Sign-in check failed, please try again.", true); return; }
+    try { const t = await api("/token", { code: code }); sessionStorage.setItem("tt_token", t.access_token); }
+    catch (e) { $("login").style.display = "block"; $("status").style.display = "block"; $("status").className = "status err";
+                $("status").textContent = "Sign-in failed: " + e.message; $("login").appendChild($("status")); return; }
+  }
+  if (token()) startEditor(); else $("login").style.display = "block";
+})();
+</script>
+</body>
+</html>
