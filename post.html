@@ -64,6 +64,7 @@
       <div class="check"><input type="checkbox" id="allowComment"><span>Comment</span></div>
       <div class="check"><input type="checkbox" id="allowDuet"><span>Duet</span></div>
       <div class="check"><input type="checkbox" id="allowStitch"><span>Stitch</span></div>
+      <p class="hint" id="interactHint"></p>
 
       <label>Disclose video content</label>
       <div class="check"><input type="checkbox" id="commercial"><span>This video promotes a brand, product or service</span></div>
@@ -159,7 +160,11 @@ async function startEditor() {
     (creator.privacy_level_options || []).forEach(v => { const o = document.createElement("option"); o.value = v;
       o.textContent = LABELS[v] || v; priv.appendChild(o); });
     [["allowComment", "comment_disabled"], ["allowDuet", "duet_disabled"], ["allowStitch", "stitch_disabled"]].forEach(([id, k]) => {
-      if (creator[k]) { $(id).disabled = true; $(id).parentElement.title = "Turned off in this account's TikTok settings"; } });
+      if (creator[k]) { $(id).disabled = true; $(id).parentElement.title = "Turned off in this account's TikTok settings";
+        $(id).parentElement.style.opacity = "0.5"; } });
+    const off = [["comment_disabled","Comment"],["duet_disabled","Duet"],["stitch_disabled","Stitch"]].filter(([k]) => creator[k]).map(([,n]) => n);
+    if (off.length) $("interactHint").textContent = off.join(", ") + (off.length > 1 ? " are" : " is") +
+      " turned off in this account's TikTok settings (e.g. private accounts cannot allow Duet/Stitch), so it cannot be enabled here.";
     if (creator.max_video_post_duration_sec) {
       const check = () => { const v = $("preview");
         $("durationHint").textContent = v.duration ? `Length ${Math.round(v.duration)} s (max. ${creator.max_video_post_duration_sec} s for this account)` : "";
